@@ -1,0 +1,22 @@
+discord:
+  dpp:
+    owner: native-cpp
+    install:
+      windows: vcpkg install dpp:x64-windows
+      cmake: find_package(dpp CONFIG REQUIRED)
+    voice_receive_note: Discord does not officially support bot voice receive; DPP exposes it best-effort.
+  gateway:
+    intents:
+      messages: true
+      guilds: true
+      voice_states: true
+      message_content: true
+  chat:
+    mention_required: true
+    slash_commands_enabled: true
+    max_reply_chars: 1900
+    typing_indicator: true
+  voice:
+    reconnect_backoff_ms: 500
+    jitter_buffer_ms: 80
+    packet_loss_concealment: true

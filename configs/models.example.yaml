@@ -1,0 +1,24 @@
+stt:
+  parakeet:
+    device: cuda
+    sample_rate_hz: 16000
+    partials: true
+    word_timestamps: true
+
+tts:
+  chatterbox:
+    device: cuda
+    sample_rate_hz: 48000
+    stream_chunk_ms: 40
+
+llm:
+  default:
+    provider: openai-compatible
+    model: configured-at-runtime
+    stream: true
+
+memory:
+  vector_store:
+    provider: local
+    embedding_model: configured-at-runtime
+

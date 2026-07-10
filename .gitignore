@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Native builds
+build/
+dist/
+*.pyd
+*.pdb
+*.so
+*.dll
+*.dylib
+compile_commands.json
+
+# Runtime state
+.env
+data/
+logs/
+models/
+*.sqlite3
+
+# Editors
+.idea/
+.vscode/
