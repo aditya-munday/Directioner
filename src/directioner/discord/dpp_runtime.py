@@ -25,6 +25,19 @@ class NativeDiscordVoiceFrame:
     pcm_s16le_stereo_48khz: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class NativeVoiceGatewayStats:
+    """Statistics from the native DPP voice gateway."""
+
+    text_messages_received: int
+    voice_frames_received: int
+    voice_bytes_received: int
+    pcm_bytes_sent: int
+    voice_ready_events: int
+    reconnects: int
+    errors: int
+
+
 class DppDiscordRuntime:
     """Owns the native DPP bot object and presents a Python-friendly API."""
 
@@ -60,6 +73,21 @@ class DppDiscordRuntime:
 
     def running(self) -> bool:
         return bool(self._runtime.running())
+
+    def stats(self) -> NativeVoiceGatewayStats | None:
+        """Return native voice gateway statistics, or None if not available."""
+        native_stats = self._runtime.stats()
+        if native_stats is None:
+            return None
+        return NativeVoiceGatewayStats(
+            text_messages_received=int(native_stats.text_messages_received),
+            voice_frames_received=int(native_stats.voice_frames_received),
+            voice_bytes_received=int(native_stats.voice_bytes_received),
+            pcm_bytes_sent=int(native_stats.pcm_bytes_sent),
+            voice_ready_events=int(native_stats.voice_ready_events),
+            reconnects=int(native_stats.reconnects),
+            errors=int(native_stats.errors),
+        )
 
     def join_user_voice(self, guild_id: int, user_id: int) -> bool:
         return bool(self._runtime.join_user_voice(guild_id, user_id))

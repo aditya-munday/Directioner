@@ -1,0 +1,41 @@
+# Core dependencies for Directioner
+# pip install -r requirements.txt
+
+# Web framework
+anyio>=4
+
+# LLM
+groq>=0.9
+
+# Numerical computing
+numpy>=1.26
+
+# Data validation
+pydantic>=2
+pydantic-settings>=2
+
+# Configuration
+PyYAML>=6
+
+# Logging
+structlog>=24
+
+# Database
+supabase>=2
+
+# ML framework (required for Silero VAD)
+torch>=2.2
+
+# Type checking
+typing-extensions>=4.10
+
+# Voice Activity Detection
+silero-vad @ git+https://github.com/snakers4/silero-vad@v4.0.0.0
+
+# Audio processing
+sounddevice>=0.4
+
+# Optional ONNX runtime for Parakeet
+onnxruntime>=1.17
+onnx>=1.15
+onnx_asr @ git+https://github.com/onnx/onnxruntime-python-examples@main

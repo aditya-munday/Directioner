@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from directioner.discord.dpp_runtime import NativeVoiceGatewayStats
 from directioner.monitoring.pipeline_metrics import (
     PipelineMetrics,
     get_metrics,
@@ -16,6 +17,7 @@ from directioner.monitoring.pipeline_metrics import (
     track_llm,
     track_stt,
     track_tts,
+    update_native_stats,
 )
 
 
@@ -112,3 +114,69 @@ def test_reset_clears_all() -> None:
     m = get_metrics()
     assert m.stt_requests == 0
     assert m.stt_latencies == []
+
+
+def test_update_native_stats() -> None:
+    stats = NativeVoiceGatewayStats(
+        text_messages_received=100,
+        voice_frames_received=500,
+        voice_bytes_received=48000,
+        pcm_bytes_sent=96000,
+        voice_ready_events=5,
+        reconnects=1,
+        errors=0,
+    )
+    update_native_stats(stats)
+    m = get_metrics()
+    assert m.native_stats is not None
+    assert m.native_stats.text_messages_received == 100
+    assert m.native_stats.voice_frames_received == 500
+    assert m.native_stats.voice_bytes_received == 48000
+    assert m.native_stats.pcm_bytes_sent == 96000
+    assert m.native_stats.voice_ready_events == 5
+    assert m.native_stats.reconnects == 1
+    assert m.native_stats.errors == 0
+
+
+def test_native_stats_in_summary() -> None:
+    stats = NativeVoiceGatewayStats(
+        text_messages_received=10,
+        voice_frames_received=50,
+        voice_bytes_received=4800,
+        pcm_bytes_sent=9600,
+        voice_ready_events=1,
+        reconnects=0,
+        errors=2,
+    )
+    update_native_stats(stats)
+    s = get_metrics().summary()
+    assert "native" in s
+    assert s["native"]["text_messages_received"] == 10
+    assert s["native"]["voice_frames_received"] == 50
+    assert s["native"]["voice_bytes_received"] == 4800
+    assert s["native"]["pcm_bytes_sent"] == 9600
+    assert s["native"]["voice_ready_events"] == 1
+    assert s["native"]["reconnects"] == 0
+    assert s["native"]["errors"] == 2
+
+
+def test_native_stats_none_in_summary() -> None:
+    update_native_stats(None)
+    s = get_metrics().summary()
+    assert "native" not in s
+
+
+def test_reset_clears_native_stats() -> None:
+    update_native_stats(
+        NativeVoiceGatewayStats(
+            text_messages_received=10,
+            voice_frames_received=10,
+            voice_bytes_received=10,
+            pcm_bytes_sent=10,
+            voice_ready_events=0,
+            reconnects=0,
+            errors=0,
+        )
+    )
+    reset_metrics()
+    assert get_metrics().native_stats is None

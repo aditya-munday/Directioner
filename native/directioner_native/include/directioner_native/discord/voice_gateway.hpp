@@ -48,6 +48,26 @@ struct VoiceGatewayStats {
   std::uint64_t errors = 0;
 };
 
+struct DiscordEmbed {
+  std::string title;
+  std::string description;
+  std::string url;
+  std::uint32_t color = 0;
+  std::string footer_text;
+  std::string footer_icon_url;
+  std::string thumbnail_url;
+  std::string image_url;
+  std::string author_name;
+  std::string author_url;
+  std::string author_icon_url;
+};
+
+struct DiscordAttachment {
+  std::string filename;
+  std::vector<std::uint8_t> data;
+  std::string content_type;
+};
+
 class DppDiscordRuntime {
  public:
   DppDiscordRuntime();
@@ -70,6 +90,20 @@ class DppDiscordRuntime {
   void disconnect_voice(std::uint64_t guild_id);
 
   [[nodiscard]] bool send_text_message(std::uint64_t channel_id, const std::string& content);
+  [[nodiscard]] bool send_embed(
+      std::uint64_t channel_id,
+      const DiscordEmbed& embed,
+      std::uint64_t reply_to_message_id = 0);
+  [[nodiscard]] bool send_message_with_embed(
+      std::uint64_t channel_id,
+      const std::string& content,
+      const DiscordEmbed& embed,
+      std::uint64_t reply_to_message_id = 0);
+  [[nodiscard]] bool send_message_with_attachment(
+      std::uint64_t channel_id,
+      const std::string& content,
+      const DiscordAttachment& attachment,
+      std::uint64_t reply_to_message_id = 0);
   [[nodiscard]] bool send_voice_pcm(
       std::uint64_t guild_id,
       const std::vector<std::uint8_t>& pcm_s16le_stereo_48khz);

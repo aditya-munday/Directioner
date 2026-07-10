@@ -1,0 +1,18 @@
+# Voice/Audio dependencies for Directioner
+# pip install -r requirements-voice.txt
+
+# NVIDIA NeMo Toolkit for Parakeet STT
+nemo_toolkit[asr]>=1.23
+
+# Chatterbox TTS
+chatterbox-tts>=0.1
+
+# OpenWakeWord for wake word detection
+openwakeword>=0.6
+
+# Audio I/O
+sounddevice>=0.4
+
+# Optional: sentence-transformers for semantic memory
+sentence-transformers>=2.2
+chromadb>=0.4

@@ -1,0 +1,15 @@
+# Development dependencies for Directioner
+# pip install -r requirements-dev.txt
+
+# Testing
+pytest>=8
+pytest-asyncio>=0.23
+pytest-cov>=4
+
+# Code quality
+ruff>=0.6
+mypy>=1.10
+
+# Type stubs
+types-PyYAML
+types-Structlog
