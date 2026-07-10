@@ -21,6 +21,7 @@ from typing import Any
 
 from directioner.conversation.events import ConversationEvent, ConversationEventKind
 from directioner.conversation.router import ConversationRouter
+from directioner.discord.slash_commands import SlashCommandHandler, get_slash_command_handler
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +85,33 @@ class ChatGateway:
         bot_id: str | None = None,
         require_mention: bool = True,
         typing_sender=None,           # optional: object with send_typing(channel_id)
+        slash_handler: SlashCommandHandler | None = None,
     ) -> None:
         self._router = router
         self._bot_id = bot_id
         self._require_mention = require_mention
         self._typing_sender = typing_sender
+        self._slash_handler = slash_handler or get_slash_command_handler()
+    
+    async def _handle_slash_command(
+        self,
+        command: str,
+        channel_id: str,
+        sender: Any,
+    ) -> bool:
+        """Handle a slash command directly. Returns True if handled."""
+        result = await self._slash_handler.execute(command, {})
+        if result is None:
+            return False
+        
+        message, _ = result
+        try:
+            await sender.send(int(channel_id), message)
+        except Exception:
+            logger.exception("chat.slash_command.send_failed channel=%s", channel_id)
+        return True
 
-    async def handle_message(self, message: DiscordMessage) -> None:
+    async def handle_message(self, message: DiscordMessage, sender=None) -> None:
         parsed = self._parse(message)
         if parsed is None:
             return
@@ -101,18 +122,29 @@ class ChatGateway:
             parsed.is_mention, parsed.is_slash_command,
         )
 
+        # Handle persona/system slash commands directly without LLM
+        if parsed.is_slash_command and parsed.slash_command:
+            # Try to handle as a built-in slash command first
+            if sender is not None:
+                handled = await self._handle_slash_command(
+                    parsed.slash_command,
+                    message.channel_id,
+                    sender,
+                )
+                if handled:
+                    return
+            
+            # If not handled by built-in, route to LLM for custom commands
+            kind = ConversationEventKind.SLASH_COMMAND
+        else:
+            kind = ConversationEventKind.CHAT_MESSAGE
+
         # Send typing indicator before routing (fire-and-forget)
         if self._typing_sender is not None:
             try:
                 await self._typing_sender.send_typing(int(message.channel_id))
             except Exception:
                 pass
-
-        kind = (
-            ConversationEventKind.SLASH_COMMAND
-            if parsed.is_slash_command
-            else ConversationEventKind.CHAT_MESSAGE
-        )
 
         text = parsed.clean_text
         if parsed.attachment_summary:

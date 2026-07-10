@@ -210,6 +210,123 @@ class DppDiscordRuntime::Impl {
 #endif
   }
 
+  [[nodiscard]] bool send_embed(
+      const std::uint64_t channel_id,
+      const DiscordEmbed& embed,
+      const std::uint64_t reply_to_message_id) {
+#if DIRECTIONER_WITH_DPP
+    std::scoped_lock lock(lifecycle_mutex_);
+    if (!bot_) {
+      return false;
+    }
+
+    dpp::message msg(dpp::snowflake(channel_id));
+    if (reply_to_message_id != 0) {
+      msg.reference(dpp::snowflake(reply_to_message_id));
+    }
+
+    dpp::embed e;
+    if (!embed.title.empty()) e.set_title(embed.title);
+    if (!embed.description.empty()) e.set_description(embed.description);
+    if (!embed.url.empty()) e.set_url(embed.url);
+    if (embed.color != 0) e.set_color(embed.color);
+    if (!embed.footer_text.empty()) {
+      e.set_footer(embed.footer_text, embed.footer_icon_url);
+    }
+    if (!embed.thumbnail_url.empty()) e.set_thumbnail(embed.thumbnail_url);
+    if (!embed.image_url.empty()) e.set_image(embed.image_url);
+    if (!embed.author_name.empty()) {
+      e.set_author(embed.author_name, embed.author_url, embed.author_icon_url);
+    }
+
+    msg.add_embed(e);
+    bot_->message_create(msg);
+    return true;
+#else
+    (void)channel_id;
+    (void)embed;
+    (void)reply_to_message_id;
+    return false;
+#endif
+  }
+
+  [[nodiscard]] bool send_message_with_embed(
+      const std::uint64_t channel_id,
+      const std::string& content,
+      const DiscordEmbed& embed,
+      const std::uint64_t reply_to_message_id) {
+#if DIRECTIONER_WITH_DPP
+    std::scoped_lock lock(lifecycle_mutex_);
+    if (!bot_) {
+      return false;
+    }
+
+    dpp::message msg(dpp::snowflake(channel_id), content);
+    if (reply_to_message_id != 0) {
+      msg.reference(dpp::snowflake(reply_to_message_id));
+    }
+
+    dpp::embed e;
+    if (!embed.title.empty()) e.set_title(embed.title);
+    if (!embed.description.empty()) e.set_description(embed.description);
+    if (!embed.url.empty()) e.set_url(embed.url);
+    if (embed.color != 0) e.set_color(embed.color);
+    if (!embed.footer_text.empty()) {
+      e.set_footer(embed.footer_text, embed.footer_icon_url);
+    }
+    if (!embed.thumbnail_url.empty()) e.set_thumbnail(embed.thumbnail_url);
+    if (!embed.image_url.empty()) e.set_image(embed.image_url);
+    if (!embed.author_name.empty()) {
+      e.set_author(embed.author_name, embed.author_url, embed.author_icon_url);
+    }
+
+    msg.add_embed(e);
+    bot_->message_create(msg);
+    return true;
+#else
+    (void)channel_id;
+    (void)content;
+    (void)embed;
+    (void)reply_to_message_id;
+    return false;
+#endif
+  }
+
+  [[nodiscard]] bool send_message_with_attachment(
+      const std::uint64_t channel_id,
+      const std::string& content,
+      const DiscordAttachment& attachment,
+      const std::uint64_t reply_to_message_id) {
+#if DIRECTIONER_WITH_DPP
+    std::scoped_lock lock(lifecycle_mutex_);
+    if (!bot_ || attachment.data.empty()) {
+      return false;
+    }
+
+    dpp::message msg(dpp::snowflake(channel_id), content);
+    if (reply_to_message_id != 0) {
+      msg.reference(dpp::snowflake(reply_to_message_id));
+    }
+
+    dpp::attachment att;
+    att.filename = attachment.filename;
+    att.filetype = attachment.content_type;
+    att.data = std::string(
+        reinterpret_cast<const char*>(attachment.data.data()),
+        attachment.data.size());
+    msg.add_attachment(att);
+
+    bot_->message_create(msg);
+    return true;
+#else
+    (void)channel_id;
+    (void)content;
+    (void)attachment;
+    (void)reply_to_message_id;
+    return false;
+#endif
+  }
+
   [[nodiscard]] bool send_voice_pcm(
       const std::uint64_t guild_id,
       const std::vector<std::uint8_t>& pcm_s16le_stereo_48khz) {
@@ -523,6 +640,29 @@ bool DppDiscordRuntime::send_text_message(
     const std::uint64_t channel_id,
     const std::string& content) {
   return impl_->send_text_message(channel_id, content);
+}
+
+bool DppDiscordRuntime::send_embed(
+    const std::uint64_t channel_id,
+    const DiscordEmbed& embed,
+    const std::uint64_t reply_to_message_id) {
+  return impl_->send_embed(channel_id, embed, reply_to_message_id);
+}
+
+bool DppDiscordRuntime::send_message_with_embed(
+    const std::uint64_t channel_id,
+    const std::string& content,
+    const DiscordEmbed& embed,
+    const std::uint64_t reply_to_message_id) {
+  return impl_->send_message_with_embed(channel_id, content, embed, reply_to_message_id);
+}
+
+bool DppDiscordRuntime::send_message_with_attachment(
+    const std::uint64_t channel_id,
+    const std::string& content,
+    const DiscordAttachment& attachment,
+    const std::uint64_t reply_to_message_id) {
+  return impl_->send_message_with_attachment(channel_id, content, attachment, reply_to_message_id);
 }
 
 bool DppDiscordRuntime::send_voice_pcm(

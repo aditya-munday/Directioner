@@ -1,0 +1,51 @@
+#===============================================================================
+# Directioner Docker Compose
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env with your API keys
+#   docker-compose up
+#
+# For GPU support:
+#   docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up
+#===============================================================================
+
+services:
+  directioner:
+    build: .
+    image: directioner:latest
+    container_name: directioner
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      # Optional: Supabase
+      # - DIRECTIONER_MEMORY_USE_SUPABASE=${DIRECTIONER_MEMORY_USE_SUPABASE:-false}
+      # - SUPABASE_URL=${SUPABASE_URL}
+      # - SUPABASE_KEY=${SUPABASE_KEY}
+    volumes:
+      # Mount models directory for caching
+      - ~/.cache/huggingface:/home/directioner/.cache/huggingface
+      - ~/.cache/torch:/home/directioner/.cache/torch
+      # Optional: Parakeet model path
+      # - /path/to/parakeet:/models/parakeet
+    devices:
+      # Audio devices (Linux only)
+      - /dev/snd:/dev/snd
+    # network_mode: host  # Uncomment if you have network issues
+    restart: unless-stopped
+    stop_signal: SIGINT
+
+  # GPU-enabled version (use: docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up)
+  # directioner-gpu:
+  #   build:
+  #     context: .
+  #     args:
+  #       - NVIDIA_VISIBLE_DEVICES=all
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]

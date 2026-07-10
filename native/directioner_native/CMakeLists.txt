@@ -15,6 +15,39 @@ set(DIRECTIONER_NATIVE_SOURCES
 
 nanobind_add_module(_native NB_STATIC ${DIRECTIONER_NATIVE_SOURCES})
 
+# C++ Unit Tests
+enable_testing()
+
+add_executable(worker_pool_test tests/worker_pool_test.cpp src/runtime/worker_pool.cpp)
+target_compile_features(worker_pool_test PRIVATE cxx_std_20)
+target_include_directories(worker_pool_test PRIVATE include)
+if(MSVC)
+  target_compile_options(worker_pool_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(worker_pool_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME native.worker_pool_test COMMAND worker_pool_test)
+
+add_executable(spsc_ring_buffer_test tests/spsc_ring_buffer_test.cpp src/shared_memory/spsc_ring_buffer.cpp)
+target_compile_features(spsc_ring_buffer_test PRIVATE cxx_std_20)
+target_include_directories(spsc_ring_buffer_test PRIVATE include)
+if(MSVC)
+  target_compile_options(spsc_ring_buffer_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(spsc_ring_buffer_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME native.spsc_ring_buffer_test COMMAND spsc_ring_buffer_test)
+
+add_executable(audio_processing_engine_test tests/audio_processing_engine_test.cpp src/audio/processing_engine.cpp)
+target_compile_features(audio_processing_engine_test PRIVATE cxx_std_20)
+target_include_directories(audio_processing_engine_test PRIVATE include)
+if(MSVC)
+  target_compile_options(audio_processing_engine_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(audio_processing_engine_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME native.audio_processing_engine_test COMMAND audio_processing_engine_test)
+
 set_target_properties(_native
   PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/src/directioner"

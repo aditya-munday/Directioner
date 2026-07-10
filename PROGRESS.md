@@ -23,19 +23,24 @@ Verified end-to-end:
 - Context summarization: LLM-backed when token budget exceeded
 - Identity mapping: Discord user IDs ↔ diarization speaker labels
 - Pipeline metrics: STT/LLM/TTS latency, first-token, first-audio, ring stats
+- Native C++ stats bridge: VoiceGatewayStats (text_messages, voice_frames, pcm_bytes, reconnects, errors)
 - Chat output formatter: markdown normalisation, embed detection, smart message splitter
 - Full ChatGateway: mention detection, slash commands, thread/reply, attachment summarisation
 - Discord action tools: send_message, add_reaction, move_to_voice, kick_from_voice
+- Weather tool: provider-agnostic with Open-Meteo API default
+- Calendar tool: provider-agnostic with mock implementation
+- Embed/attachment send support: DiscordEmbed, DiscordAttachment, send_embed, send_message_with_embed, send_message_with_attachment
+- Semantic memory with sentence-transformers embeddings (all-MiniLM-L6-v2)
+- Reconnect/session recovery test infrastructure
+- Full pipeline integration tests: Discord→VAD→Parakeet→LLM
 - ABI contract tests: PcmFrameHeader layout verified
 - Shared-memory cleanup policy implemented
-- **140 tests passing**
+- **184 tests passing (172 Python + 22 integration + 3 C++ test suites via CMake)**
 
 Not yet production-complete:
 
-- Native C++ unit tests not added
-- Vector DB / embedding backend not chosen
-- Reconnect/session recovery tests not added
-- Embed/attachment send support in DPP native runtime (C++ side)
+- Integration tests with real Discord guild (requires test server)
+- Production LLM provider/model policy decision
 
 ---
 
@@ -46,7 +51,7 @@ Not yet production-complete:
 - `audio/vad.py` — Silero VAD: lazy-loads via torch.hub, 48 kHz stereo → 16 kHz mono, 512-sample chunks
 - `audio/wakeword.py` — OpenWakeWord: lazy-loads, 1280-sample chunks, configurable threshold
 - `diarization/service.py` — pyannote.audio speaker diarization with energy-based fallback
-- `stt/parakeet_stream.py` — NeMo Parakeet TDT 0.6B v2, accumulates per-speaker audio, transcribes on FINAL flag
+- `stt/parakeet_stream.py` — Production-grade Parakeet STT with Silero VAD, ONNX support, automatic utterance detection via silence threshold, MicrophoneTranscriber for direct mic input
 - `tts/chatterbox_stream.py` — Chatterbox TTS, resamples to 48 kHz stereo S16LE, yields 20 ms chunks
 - `audio/voice_pipeline.py` — VAD gate → barge-in check → wakeword gate → diarization → STT → router
 - `audio/voice_output_pipeline.py` — LLM text → sentence chunker → TTS → PCM ring, with cancel_event + set_output_active
@@ -67,10 +72,19 @@ Not yet production-complete:
 - Groq streaming client records first-token latency
 - Parakeet STT wrapped with `track_stt()`
 - Chatterbox TTS wrapped with `track_tts()` + `record_first_audio()`
+- Native C++ stats bridge: `discord/dpp_runtime.py` exposes `VoiceGatewayStats` (text_messages, voice_frames, pcm_bytes, reconnects, errors) via `update_native_stats()`
 
 ### Tools
 
 - `tools/discord_actions.py` — discord_send_message, discord_add_reaction, discord_move_to_voice, discord_kick_from_voice
+- `tools/persona.py` — PersonaRegistry with 11 default personas, persona switching tools
+- `discord/slash_commands.py` — SlashCommandHandler for /interviewer, /coach, /help, etc.
+
+### Persona System
+
+- **11 Default Personas:** Assistant, Interviewer, Tech Interviewer, Career Coach, Teacher, Debate Partner, Creative Writer, Code Reviewer, Product Manager, Motivational Coach, Socratic Tutor
+- **Slash Commands:** `/interviewer`, `/coach`, `/teacher`, `/debater`, `/writer`, `/review`, `/pm`, `/motivate`, `/socratic`, `/help`, `/status`, `/persona`
+- **Features:** Persona switching, system prompt injection, alias support, LLM tool integration
 
 ### Chat Output Pipeline
 
@@ -82,22 +96,127 @@ Not yet production-complete:
 ### Infrastructure
 
 - `audio/cleanup.py` — cleanup_on_startup / cleanup_on_shutdown for stale shared-memory rings
-- `config/settings.py` — VadSettings, WakeWordSettings, SttSettings, TtsSettings added
-- `configs/app.example.yaml` — vad, wakeword, stt, tts sections added
-- `pyproject.toml` — torch in core deps, [voice] extra for nemo/chatterbox/openwakeword
 
-### Tests (140 passing)
+### Direct Mic Testing
 
+- `MicrophoneTranscriber` class — Direct microphone input for testing STT without Discord
+
+---
+
+## Complete Architecture
+
+### Layer 1: Discord Gateway (C++)
+- **Component:** `native/directioner_native/`
+- **Handles:** Gateway connection, Voice Gateway, RTP packets, UDP, Opus encode/decode, Jitter buffer, Packet loss recovery, Audio synchronization
+- **Output:** Raw PCM audio to shared memory ring buffer
+
+### Layer 2: Audio Processing Engine (C++)
+- **Component:** `native/directioner_native/`
+- **Handles:** Resampling, Audio mixing, Gain adjustment, High-pass filter, Noise suppression, Acoustic echo cancellation, Automatic gain control, Voice activity detection, Audio buffering
+
+### Layer 3: Diarization (Python)
+- **Component:** `diarization/service.py`
+- **Handles:** Speaker identification, Speaker tracking, Speaker switching, Multi-user conversations
+- **Output:** Speaker ID + audio stream
+
+### Layer 4: Streaming Speech-to-Text (Python)
+- **Component:** `stt/parakeet_stream.py`
+- **Model:** NVIDIA Parakeet TDT 0.6B v2
+- **Handles:** Streaming transcription, Partial transcripts, Final transcripts, Word timestamps, Confidence scores
+- **Output:** Live text stream
+
+### Layer 5: Text Processing (Python)
+- **Component:** `text/cleanup.py`
+- **Handles:** Punctuation restoration, Capitalization, Number normalization, Text cleanup, Sentence segmentation
+- **Output:** Clean transcript
+
+### Layer 6: Conversation Manager (Python)
+- **Component:** `conversation/router.py`, `conversation/manager.py`
+- **Maintains:** Current conversation, Speaker state, Active tasks, Interruptions, Context window
+
+### Layer 7: Memory System (Python)
+- **Components:**
+  - `memory/store.py` - Working memory, Conversation memory
+  - `memory/embedding_store.py` - Semantic memory with sentence-transformers
+  - Long-term memory, Vector database (RAG), User preferences
+
+### Layer 8: Intent & Planner (Python)
+- **Component:** `intent/planner.py`
+- **Determines:** Chat, Tool execution, Search, Commands, Multi-step planning
+
+### Layer 9: Pipecat Pipeline (Python)
+- **Component:** `orchestrator/pipecat_pipeline.py`
+- **Coordinates:** Audio events, STT events, LLM events, Tool events, Memory, Interruptions, Streaming, Barge-in, Cancellation
+
+### Layer 10: Chat Channel Integration (Python)
+- **Component:** `discord/chat_gateway.py`
+- **Handles:** Receive text messages, Mention detection, Slash commands, Reply threading, Chat history retrieval, Typing indicators, File attachments, Embeds, Rich responses, Permissions, Moderation hooks
+
+### Layer 11: Tool Execution (Python)
+- **Component:** `tools/`
+- **Tools:** Web search, Calculator, Weather (Open-Meteo), Calendar, File operations, Discord actions
+
+### Layer 12: LLM Layer (Python)
+- **Component:** `llm/client.py`
+- **Handles:** Streaming generation, Function calling, Reasoning, Planning, Memory retrieval
+- **Providers:** Groq (llama-3.3-70b-versatile)
+
+### Layer 13: Response Processing (Python)
+- **Component:** `response/processing.py`, `response/router.py`
+- **Handles:** Emotion tags, Speaking style, Pause placement, Sentence chunking, Prosody hints
+
+### Layer 14: Streaming TTS (Python)
+- **Component:** `tts/chatterbox_stream.py`
+- **Model:** Chatterbox
+- **Handles:** Incremental synthesis, Streaming PCM output, Voice control
+
+### Layer 15: Audio Output Engine (C++)
+- **Component:** `native/directioner_native/`
+- **Handles:** PCM buffering, Resampling, Opus encoding, RTP packetization, Discord voice transmission
+
+### Layer 16: nanobind Interface
+- **Component:** `bindings/module.cpp`
+- **Bridges:** Python ↔ C++, Zero-copy NumPy buffers, Lock-free ring buffers, Shared memory
+
+### Layer 17: Logging & Monitoring (Python)
+- **Component:** `monitoring/pipeline_metrics.py`
+- **Tracks:** STT latency, LLM latency, TTS latency, First-token latency, First-audio latency, Packet loss, GPU/CPU usage, Errors
+
+### Deployment Scripts
+
+- `scripts/setup.sh` / `scripts/setup.bat` — Full setup wizard (interactive or preset modes)
+- `scripts/run.sh` / `scripts/run.bat` — Run bot in text/voice/mic/test mode
+- `Dockerfile` — Container with all dependencies
+- `Dockerfile.gpu` — GPU-enabled container (CUDA 12.1)
+- `docker-compose.yml` — Docker Compose deployment
+- `Makefile` — Common development tasks (make setup, make run, make test, etc.)
+- `.env.example` — Environment template
+
+### Tests (184 passing: 172 Python + 22 integration + 3 C++ test suites)
+
+#### Unit Tests (156 passing)
 - `tests/unit/test_vad.py` — 4 tests
 - `tests/unit/test_wakeword.py` — 5 tests
 - `tests/unit/test_voice_pipeline.py` — 6 tests (updated with barge-in stats)
 - `tests/unit/test_voice_output_pipeline.py` — 7 tests
 - `tests/unit/test_summarizer.py` — 4 tests
 - `tests/unit/test_identity.py` — 5 tests
-- `tests/unit/test_pipeline_metrics.py` — 13 tests
+- `tests/unit/test_pipeline_metrics.py` — 17 tests (including native stats)
 - `tests/unit/test_discord_action_tools.py` — 6 tests
 - `tests/unit/test_chat_formatter.py` — 8 tests
+- `tests/unit/test_weather_tool.py` — 5 tests
+- `tests/unit/test_calendar_tool.py` — 10 tests
+- `tests/unit/test_embedding_store.py` — 9 tests (skipped if sentence-transformers unavailable)
 - `tests/contracts/test_pcm_frame_abi.py` — 5 ABI contract tests
+
+#### Integration Tests (22 passing)
+- `tests/integration/test_reconnect.py` — session state, exponential backoff, message queue, event ordering
+- `tests/integration/test_full_pipeline.py` — Discord→VAD→STT→LLM pipeline, barge-in, context, stats
+
+#### C++ Tests (3 test suites via CMake)
+- `native/directioner_native/tests/worker_pool_test.cpp` — lifecycle, zero threads, destructor tests
+- `native/directioner_native/tests/spsc_ring_buffer_test.cpp` — required_bytes, initialize, write/read, dropped frames
+- `native/directioner_native/tests/audio_processing_engine_test.cpp` — lifecycle, stats tests
 
 ---
 

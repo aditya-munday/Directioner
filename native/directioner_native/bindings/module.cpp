@@ -114,6 +114,26 @@ NB_MODULE(_native, m) {
       .def_ro("reconnects", &directioner_native::discord::VoiceGatewayStats::reconnects)
       .def_ro("errors", &directioner_native::discord::VoiceGatewayStats::errors);
 
+  nb::class_<directioner_native::discord::DiscordEmbed>(m, "DiscordEmbed")
+      .def(nb::init<>())
+      .def_rw("title", &directioner_native::discord::DiscordEmbed::title)
+      .def_rw("description", &directioner_native::discord::DiscordEmbed::description)
+      .def_rw("url", &directioner_native::discord::DiscordEmbed::url)
+      .def_rw("color", &directioner_native::discord::DiscordEmbed::color)
+      .def_rw("footer_text", &directioner_native::discord::DiscordEmbed::footer_text)
+      .def_rw("footer_icon_url", &directioner_native::discord::DiscordEmbed::footer_icon_url)
+      .def_rw("thumbnail_url", &directioner_native::discord::DiscordEmbed::thumbnail_url)
+      .def_rw("image_url", &directioner_native::discord::DiscordEmbed::image_url)
+      .def_rw("author_name", &directioner_native::discord::DiscordEmbed::author_name)
+      .def_rw("author_url", &directioner_native::discord::DiscordEmbed::author_url)
+      .def_rw("author_icon_url", &directioner_native::discord::DiscordEmbed::author_icon_url);
+
+  nb::class_<directioner_native::discord::DiscordAttachment>(m, "DiscordAttachment")
+      .def(nb::init<>())
+      .def_rw("filename", &directioner_native::discord::DiscordAttachment::filename)
+      .def_rw("data", &directioner_native::discord::DiscordAttachment::data)
+      .def_rw("content_type", &directioner_native::discord::DiscordAttachment::content_type);
+
   nb::class_<directioner_native::discord::DppDiscordRuntime>(m, "DppDiscordRuntime")
       .def(nb::init<>())
       .def("start", &directioner_native::discord::DppDiscordRuntime::start, nb::arg("config"))
@@ -141,6 +161,26 @@ NB_MODULE(_native, m) {
           &directioner_native::discord::DppDiscordRuntime::send_text_message,
           nb::arg("channel_id"),
           nb::arg("content"))
+      .def(
+          "send_embed",
+          &directioner_native::discord::DppDiscordRuntime::send_embed,
+          nb::arg("channel_id"),
+          nb::arg("embed"),
+          nb::arg("reply_to_message_id") = 0)
+      .def(
+          "send_message_with_embed",
+          &directioner_native::discord::DppDiscordRuntime::send_message_with_embed,
+          nb::arg("channel_id"),
+          nb::arg("content"),
+          nb::arg("embed"),
+          nb::arg("reply_to_message_id") = 0)
+      .def(
+          "send_message_with_attachment",
+          &directioner_native::discord::DppDiscordRuntime::send_message_with_attachment,
+          nb::arg("channel_id"),
+          nb::arg("content"),
+          nb::arg("attachment"),
+          nb::arg("reply_to_message_id") = 0)
       .def(
           "send_voice_pcm",
           [](directioner_native::discord::DppDiscordRuntime& runtime,

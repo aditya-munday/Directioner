@@ -6,7 +6,10 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
+
+if TYPE_CHECKING:
+    from directioner.discord.dpp_runtime import NativeVoiceGatewayStats
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,8 @@ class PipelineMetrics:
     ring_underruns: int = 0
     ring_dropped: int = 0
     barge_in_count: int = 0
+    # Native C++ gateway stats
+    native_stats: "NativeVoiceGatewayStats | None" = None
 
     def _p50(self, s: list[float]) -> float:
         if not s:
@@ -44,7 +49,7 @@ class PipelineMetrics:
         return ss[int(len(ss) * 0.95)]
 
     def summary(self) -> dict:
-        return {
+        result = {
             "stt": {
                 "requests": self.stt_requests,
                 "errors": self.stt_errors,
@@ -74,6 +79,17 @@ class PipelineMetrics:
             },
             "barge_in_count": self.barge_in_count,
         }
+        if self.native_stats is not None:
+            result["native"] = {
+                "text_messages_received": self.native_stats.text_messages_received,
+                "voice_frames_received": self.native_stats.voice_frames_received,
+                "voice_bytes_received": self.native_stats.voice_bytes_received,
+                "pcm_bytes_sent": self.native_stats.pcm_bytes_sent,
+                "voice_ready_events": self.native_stats.voice_ready_events,
+                "reconnects": self.native_stats.reconnects,
+                "errors": self.native_stats.errors,
+            }
+        return result
 
     def log_summary(self) -> None:
         import json
@@ -158,3 +174,8 @@ def record_ring_read(frame_or_none: object) -> None:
 
 def record_barge_in() -> None:
     get_metrics().barge_in_count += 1
+
+
+def update_native_stats(stats: "NativeVoiceGatewayStats | None") -> None:
+    """Update native C++ gateway stats in the metrics singleton."""
+    get_metrics().native_stats = stats
