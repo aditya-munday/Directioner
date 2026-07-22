@@ -1,4 +1,4 @@
-"""Safe access to the nanobind native extension."""
+"""Safe access to the PyO3 native extension."""
 
 from __future__ import annotations
 
@@ -20,14 +20,6 @@ def _configure_windows_dll_search_path() -> None:
 
     env_dirs = os.getenv("DIRECTIONER_DLL_DIRS", "")
     candidates.extend(Path(item) for item in env_dirs.split(os.pathsep) if item)
-
-    vcpkg_root = Path(os.getenv("VCPKG_ROOT", r"C:\vcpkg"))
-    candidates.extend(
-        [
-            vcpkg_root / "installed" / "x64-windows" / "bin",
-            vcpkg_root / "installed" / "x64-windows" / "debug" / "bin",
-        ]
-    )
 
     candidates.extend(
         [
@@ -62,7 +54,7 @@ def require_native() -> ModuleType:
     if _native is None:
         raise RuntimeError(
             "Directioner native extension is not available. "
-            "Build the project with scikit-build-core/nanobind first."
+            "Build the project with maturin first: pip install -e ."
         ) from _native_error
     return _native
 

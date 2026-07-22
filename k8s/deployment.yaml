@@ -1,0 +1,139 @@
+# =============================================================================
+# Kubernetes Deployment
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: directioner
+  namespace: directioner
+  labels:
+    app.kubernetes.io/name: directioner
+    app.kubernetes.io/component: bot
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: directioner
+      app.kubernetes.io/component: bot
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: directioner
+        app.kubernetes.io/component: bot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: directioner
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: directioner
+          image: ghcr.io/aditya-munday/directioner:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: directioner-secrets
+                  key: discord-bot-token
+                  optional: false
+            - name: DISCORD_APPLICATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: directioner-secrets
+                  key: discord-application-id
+                  optional: true
+            - name: DIRECTIONER_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: directioner-secrets
+                  key: llm-api-key
+                  optional: true
+            - name: DIRECTIONER_SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: directioner-secrets
+                  key: supabase-url
+                  optional: true
+            - name: DIRECTIONER_SUPABASE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: directioner-secrets
+                  key: supabase-key
+                  optional: true
+          envFrom:
+            - configMapRef:
+                name: directioner-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -m
+                - directioner.app
+                - health-check
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -m
+                - directioner.app
+                - health-check
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: bot
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: bot

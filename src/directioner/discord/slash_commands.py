@@ -1,20 +1,12 @@
-"""Slash command handler for Discord bot commands.
-
-This module handles slash commands like /interviewer, /coach, /help, etc.
-that don't require LLM processing.
-"""
+"""Slash command handler for Discord bot commands."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from directioner.tools.persona import PersonaRegistry, get_persona_registry
-
-if TYPE_CHECKING:
-    from directioner.discord.chat_output import ChatSender
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +20,6 @@ class SlashCommand:
     handler: Callable
 
 
-# Voice channel controller - set by the app at startup
-_voice_controller: "ChatSender | None" = None
-
-
-def set_voice_controller(controller: "ChatSender | None") -> None:
-    """Set the voice controller for /join and /leave commands."""
-    global _voice_controller
-    _voice_controller = controller
-
-
-# Built-in slash commands that don't need LLM
 async def _help_handler(args: dict, registry: PersonaRegistry) -> tuple[str, str]:
     """Handle /help command."""
     personas = registry.list_personas()
@@ -52,10 +33,6 @@ async def _help_handler(args: dict, registry: PersonaRegistry) -> tuple[str, str
         lines.append(f"  {p.icon} {aliases} — {p.description}")
     
     lines.extend([
-        "",
-        "**Voice Commands:**",
-        "  /join — Join your voice channel",
-        "  /leave — Leave the voice channel",
         "",
         "**General Commands:**",
         "  /help — Show this help message",
@@ -96,26 +73,6 @@ async def _persona_handler(args: dict, registry: PersonaRegistry) -> tuple[str, 
     return "\n".join(lines), "text"
 
 
-async def _join_handler(args: dict, registry: PersonaRegistry) -> tuple[str, str]:
-    """Handle /join command to join voice channel."""
-    if _voice_controller is None:
-        return "❌ Voice controller not available. I can't join voice channels right now.", "text"
-    
-    # Voice join is handled by the runtime - signal intent
-    logger.info("slash_command.voice_join user_requested")
-    return "🎤 I'll join your voice channel. Make sure I'm in a voice channel!", "text"
-
-
-async def _leave_handler(args: dict, registry: PersonaRegistry) -> tuple[str, str]:
-    """Handle /leave command to leave voice channel."""
-    if _voice_controller is None:
-        return "❌ Voice controller not available. I can't leave voice channels right now.", "text"
-    
-    logger.info("slash_command.voice_leave user_requested")
-    return "👋 Leaving voice channel now. Goodbye!", "text"
-
-
-# Create the slash command registry
 def _create_slash_commands(registry: PersonaRegistry) -> dict[str, SlashCommand]:
     """Create all slash commands."""
     commands = {}
@@ -127,16 +84,12 @@ def _create_slash_commands(registry: PersonaRegistry) -> dict[str, SlashCommand]
                 success, message = reg.activate(p.name)
                 return message, "text"
             return handler
-        
-        # Main name
         commands[persona.name] = SlashCommand(
             name=persona.name,
             aliases=persona.aliases,
             description=f"Switch to {persona.display_name} persona",
             handler=make_handler(),
         )
-        
-        # Aliases
         for alias in persona.aliases:
             commands[alias] = SlashCommand(
                 name=persona.name,
@@ -167,21 +120,6 @@ def _create_slash_commands(registry: PersonaRegistry) -> dict[str, SlashCommand]
         handler=lambda args, reg=registry: _persona_handler(args, reg),
     )
     
-    # Voice commands
-    commands["join"] = SlashCommand(
-        name="join",
-        aliases=("voice_join",),
-        description="Join voice channel",
-        handler=lambda args, reg=registry: _join_handler(args, reg),
-    )
-    
-    commands["leave"] = SlashCommand(
-        name="leave",
-        aliases=("voice_leave", "disconnect", "stop"),
-        description="Leave voice channel",
-        handler=lambda args, reg=registry: _leave_handler(args, reg),
-    )
-    
     return commands
 
 
@@ -201,7 +139,6 @@ class SlashCommandHandler:
         command = self.get_command(command_name)
         if command is None:
             return None
-        
         try:
             return await command.handler(args)
         except Exception:

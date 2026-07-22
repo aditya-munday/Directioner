@@ -5,7 +5,7 @@ def test_default_settings_load_without_config() -> None:
     settings = Settings.load(None)
 
     assert settings.app_name == "directioner"
-    assert settings.audio.sample_rate_hz == 48_000
+    assert settings.environment == "development"
 
 
 def test_discord_token_can_come_from_environment(monkeypatch) -> None:

@@ -1,50 +1,74 @@
-#===============================================================================
-# Directioner Dockerfile
-#
-# Build: docker build -t directioner .
-# Run:   docker run -it --device /dev/snd -e DISCORD_BOT_TOKEN=xxx directioner
-#===============================================================================
+# =============================================================================
+# Directioner Discord Bot - Production Dockerfile
+# =============================================================================
 
-FROM python:3.11-slim
+FROM python:3.13-slim as builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    wget \
-    portaudio \
-    libportaudio2 \
-    libsndfile1 \
-    ffmpeg \
-    cmake \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libffi-dev \
-    libssl-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Set HF transfer for faster model downloads
-ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for caching
-COPY requirements.txt requirements-voice.txt ./
+# Copy dependency files
+COPY pyproject.toml ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -r requirements-voice.txt
+# Install Python dependencies in a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
 
-# Copy source code
-COPY . .
+# =============================================================================
+# Production Stage
+# =============================================================================
 
-# Build C++ extension
-RUN pip install -e .
+FROM python:3.13-slim
 
-# Create non-root user
-RUN useradd -m -u 1000 directioner && \
-    chown -R directioner:directioner /app
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash directioner
+
+# Set working directory
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application code
+COPY --chown=directioner:directioner src/ ./src/
+COPY --chown=directioner:directioner native/ ./native/
+COPY --chown=directioner:directioner configs/ ./configs/
+COPY --chown=directioner:directioner .env.example ./
+
+# Create data directory
+RUN mkdir -p /app/data/memory && chown directioner:directioner /app/data
+
+# Switch to non-root user
 USER directioner
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
 # Default command
-CMD ["python", "-m", "directioner.app"]
+CMD ["python", "-m", "directioner.app", "run"]
+
+# Expose port for health check (optional)
+EXPOSE 8000
+
+# Labels
+LABEL org.opencontainers.image.title="Directioner"
+LABEL org.opencontainers.image.description="AI-powered Discord text assistant"
+LABEL org.opencontainers.image.version="1.0.0"
+LABEL org.opencontainers.image.source="https://github.com/aditya-munday/Directioner"

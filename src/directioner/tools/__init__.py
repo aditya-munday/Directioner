@@ -14,7 +14,15 @@ from .persona import (
     list_personas_tool,
     switch_persona_tool,
 )
-from .registry import ToolHandler, ToolRegistry, ToolSpec
+from .registry import (
+    ToolHandler,
+    ToolRegistry,
+    ToolSpec,
+    ToolValidationError,
+    sanitize_string,
+    validate_path,
+    validate_positive_int,
+)
 from .user_preferences import set_user_preference_tool, delete_user_preference_tool
 from .web_search import WebSearchToolError, web_search_tool
 
@@ -24,6 +32,7 @@ __all__ = [
     "ToolHandler",
     "ToolRegistry",
     "ToolSpec",
+    "ToolValidationError",
     "build_default_registry",
     "calculator_tool",
     "evaluate",
@@ -38,6 +47,9 @@ __all__ = [
     "get_persona_registry",
     "switch_persona_tool",
     "list_personas_tool",
+    "sanitize_string",
+    "validate_path",
+    "validate_positive_int",
 ]
 
 

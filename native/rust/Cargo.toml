@@ -1,0 +1,25 @@
+[package]
+name = "directioner_native"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Directioner native real-time audio bridge"
+authors = ["Directioner Contributors"]
+license = "Proprietary"
+
+[lib]
+name = "directioner_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+memmap2 = "0.9"
+parking_lot = "0.12"
+
+[build-dependencies]
+pyo3-build-config = "0.24"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

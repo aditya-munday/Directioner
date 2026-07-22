@@ -1,0 +1,29 @@
+# =============================================================================
+# Kubernetes ConfigMap
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: directioner-config
+  namespace: directioner
+  labels:
+    app.kubernetes.io/name: directioner
+    app.kubernetes.io/component: config
+data:
+  APP_NAME: "directioner"
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  LLM_PROVIDER: "groq"
+  MEMORY_ENABLED: "true"
+  MEMORY_MAX_TURNS: "200"
+  MEMORY_RETRIEVAL_TURNS: "8"
+  MEMORY_PERSIST_PATH: "/app/data/memory/turns.jsonl"
+  MEMORY_USE_SUPABASE: "false"
+  RATE_LIMIT_USER: "60"
+  RATE_LIMIT_CHANNEL: "300"
+  RATE_LIMIT_GUILD: "1000"
+  MAX_CONVERSATIONS: "100000"
+  MAX_PER_GUILD: "10000"
+  MAX_PER_CHANNEL: "1000"
+  IDLE_TIMEOUT: "3600"

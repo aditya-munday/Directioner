@@ -16,7 +16,6 @@ class ContextRecord:
     content: str
     source: str
     token_estimate: int
-    speaker_id: str | None = None
     user_id: str | None = None
     channel_id: str | None = None
     guild_id: str | None = None
@@ -60,7 +59,6 @@ class ContextManager:
             content=content,
             source=event.kind.value,
             token_estimate=self.estimate_tokens(content),
-            speaker_id=event.speaker_id,
             user_id=event.user_id,
             channel_id=event.channel_id,
             guild_id=event.guild_id,

@@ -7,24 +7,22 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+*.whl
 
-# Native builds
+# Rust
+native/rust/target/
+
+# Build
 build/
 dist/
-*.pyd
-*.pdb
-*.so
-*.dll
-*.dylib
-compile_commands.json
 
 # Runtime state
 .env
 data/
 logs/
-models/
 *.sqlite3
 
 # Editors
 .idea/
 .vscode/
+*.swp

@@ -1,14 +1,15 @@
-"""Provider-neutral LLM facade."""
+"""Provider-neutral LLM facade with retry logic and error handling."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from collections.abc import AsyncIterator
 
 from directioner.config.settings import LlmSettings
 from directioner.conversation.context import ContextRecord, ContextSnapshot
@@ -17,6 +18,148 @@ from directioner.memory.store import MemoryContext
 from directioner.tools.registry import ToolSpec
 
 LOGGER = logging.getLogger(__name__)
+
+# Retry configuration
+_MAX_RETRIES = 3
+_INITIAL_BACKOFF = 0.5
+_MAX_BACKOFF = 8.0
+_BACKOFF_MULTIPLIER = 2.0
+
+# Circuit breaker configuration
+_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
+_CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 30.0
+
+# LLM Response Cache configuration
+_LLM_CACHE_MAX_SIZE = 1000
+_LLM_CACHE_TTL = 60  # 1 minute cache for LLM responses
+
+
+class LlmError(Exception):
+    """Base exception for LLM-related errors."""
+    pass
+
+
+class LlmRateLimitError(LlmError):
+    """Raised when rate limit is hit."""
+    pass
+
+
+class LlmTimeoutError(LlmError):
+    """Raised when request times out."""
+    pass
+
+
+class CircuitBreaker:
+    """Circuit breaker for fault tolerance."""
+
+    def __init__(
+        self,
+        failure_threshold: int = _CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        recovery_timeout: float = _CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
+    ) -> None:
+        self._failure_threshold = failure_threshold
+        self._recovery_timeout = recovery_timeout
+        self._failure_count = 0
+        self._last_failure_time: float | None = None
+        self._state = "closed"  # closed, open, half_open
+
+    @property
+    def state(self) -> str:
+        if self._state == "open":
+            if (
+                self._last_failure_time
+                and time.monotonic() - self._last_failure_time >= self._recovery_timeout
+            ):
+                self._state = "half_open"
+        return self._state
+
+    def record_success(self) -> None:
+        self._failure_count = 0
+        self._state = "closed"
+
+    def record_failure(self) -> None:
+        self._failure_count += 1
+        self._last_failure_time = time.monotonic()
+        if self._failure_count >= self._failure_threshold:
+            self._state = "open"
+            LOGGER.warning(
+                "LLM circuit breaker opened after %d failures",
+                self._failure_count,
+            )
+
+    def can_attempt(self) -> bool:
+        return self.state != "open"
+
+
+async def with_retry(
+    coro,
+    max_retries: int = _MAX_RETRIES,
+    operation_name: str = "LLM request",
+):
+    """Execute coroutine with exponential backoff retry."""
+    last_exception: Exception | None = None
+    backoff = _INITIAL_BACKOFF
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro
+        except Exception as exc:
+            last_exception = exc
+            error_type = type(exc).__name__
+
+            # Don't retry on configuration errors
+            if isinstance(exc, (ValueError, RuntimeError)):
+                if "requires" in str(exc) or "configured" in str(exc):
+                    raise
+
+            # Check for rate limit
+            if "429" in str(exc) or "rate limit" in str(exc).lower():
+                LOGGER.warning(
+                    "LLM rate limited, attempt %d/%d",
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+                    continue
+                raise LlmRateLimitError(f"Rate limited after {max_retries} retries") from exc
+
+            # Check for timeout
+            if "timeout" in str(exc).lower() or "timed out" in str(exc).lower():
+                LOGGER.warning(
+                    "%s timed out, attempt %d/%d",
+                    operation_name,
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+                    continue
+                raise LlmTimeoutError(f"Timed out after {max_retries} retries") from exc
+
+            # Log and retry other errors
+            if attempt < max_retries:
+                LOGGER.warning(
+                    "%s failed (%s), attempt %d/%d, retrying in %.1fs",
+                    operation_name,
+                    error_type,
+                    attempt + 1,
+                    max_retries + 1,
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+            else:
+                LOGGER.error(
+                    "%s failed after %d attempts: %s",
+                    operation_name,
+                    max_retries + 1,
+                    exc,
+                )
+
+    raise LlmError(f"{operation_name} failed after {max_retries + 1} attempts") from last_exception
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +314,12 @@ class OpenAiCompatibleClient:
 
 
 class GroqLlmClient:
-    """Groq chat-completions adapter."""
+    """Groq chat-completions adapter with retry logic, circuit breaker, and caching."""
+
+    # Class-level LRU cache shared across instances
+    _response_cache: dict[str, tuple[LlmResponse, float]] = {}
+    _cache_lock = asyncio.Lock()
+    _cache_max_size = _LLM_CACHE_MAX_SIZE
 
     def __init__(self, settings: LlmSettings) -> None:
         self._settings = settings
@@ -180,7 +328,7 @@ class GroqLlmClient:
         except ImportError as exc:
             raise RuntimeError(
                 "DIRECTIONER_LLM_PROVIDER=groq requires the `groq` Python package. "
-                "Install it with: .\\.venv\\Scripts\\python.exe -m pip install groq"
+                "Install it with: pip install groq"
             ) from exc
 
         kwargs: dict[str, str] = {}
@@ -189,9 +337,122 @@ class GroqLlmClient:
         if settings.base_url:
             kwargs["base_url"] = settings.base_url
         self._client = Groq(**kwargs)
+        self._circuit_breaker = CircuitBreaker()
+
+    def _make_cache_key(self, request: LlmRequest) -> str:
+        """Create a cache key for the request."""
+        # Hash the prompt and system prompt for cache key
+        data = f"{request.system_prompt}:{request.plan.prompt}:{request.plan.kind.value}"
+        return hashlib.sha256(data.encode()).hexdigest()[:32]
+
+    async def _get_cached_response(self, cache_key: str) -> LlmResponse | None:
+        """Get cached response if available and not expired."""
+        async with self._cache_lock:
+            if cache_key in self._response_cache:
+                response, expiry = self._response_cache[cache_key]
+                if time.time() < expiry:
+                    LOGGER.debug("llm.cache.hit", key=cache_key[:8])
+                    return response
+                del self._response_cache[cache_key]
+        return None
+
+    async def _cache_response(self, cache_key: str, response: LlmResponse) -> None:
+        """Cache a response with TTL."""
+        async with self._cache_lock:
+            # Evict oldest if at capacity
+            if len(self._response_cache) >= self._cache_max_size:
+                # Remove expired entries first
+                now = time.time()
+                expired = [k for k, (_, exp) in self._response_cache.items() if exp <= now]
+                for k in expired:
+                    del self._response_cache[k]
+
+                # If still at capacity, remove oldest
+                if len(self._response_cache) >= self._cache_max_size:
+                    oldest_key = min(self._response_cache.keys(), key=lambda k: self._response_cache[k][1])
+                    del self._response_cache[oldest_key]
+
+            self._response_cache[cache_key] = (response, time.time() + _LLM_CACHE_TTL)
+            LOGGER.debug("llm.cache.set", key=cache_key[:8])
 
     async def complete(self, request: LlmRequest) -> LlmResponse:
-        return await asyncio.to_thread(self._run_complete_sync, request)
+        if not self._circuit_breaker.can_attempt():
+            raise LlmError("LLM circuit breaker is open. Service temporarily unavailable.")
+
+        # Check cache first (for non-streaming requests without tools)
+        if not request.tools and not request.messages:
+            cache_key = self._make_cache_key(request)
+            cached = await self._get_cached_response(cache_key)
+            if cached:
+                return cached
+
+        last_exception: Exception | None = None
+        backoff = _INITIAL_BACKOFF
+
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                result = await asyncio.to_thread(self._run_complete_sync, request)
+                self._circuit_breaker.record_success()
+                
+                # Build response
+                response = LlmResponse(
+                    content=result.content[: self._settings.max_output_chars],
+                    provider="groq",
+                    model=self._settings.model,
+                    tool_calls=result.tool_calls,
+                )
+                
+                # Cache the response if applicable
+                if not request.tools and not request.messages:
+                    await self._cache_response(cache_key, response)
+                
+                return response
+            except Exception as exc:
+                last_exception = exc
+                error_type = type(exc).__name__
+
+                # Don't retry on configuration errors
+                if isinstance(exc, (ValueError, RuntimeError)):
+                    if "requires" in str(exc) or "configured" in str(exc):
+                        self._circuit_breaker.record_failure()
+                        raise
+
+                # Check for rate limit
+                if "429" in str(exc) or "rate limit" in str(exc).lower():
+                    LOGGER.warning("Groq rate limited, attempt %d/%d", attempt + 1, _MAX_RETRIES + 1)
+                    if attempt < _MAX_RETRIES:
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+                        continue
+                    self._circuit_breaker.record_failure()
+                    raise LlmRateLimitError(f"Rate limited after {_MAX_RETRIES} retries") from exc
+
+                # Check for timeout
+                if "timeout" in str(exc).lower() or "timed out" in str(exc).lower():
+                    LOGGER.warning("Groq timed out, attempt %d/%d", attempt + 1, _MAX_RETRIES + 1)
+                    if attempt < _MAX_RETRIES:
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+                        continue
+                    self._circuit_breaker.record_failure()
+                    raise LlmTimeoutError(f"Timed out after {_MAX_RETRIES} retries") from exc
+
+                # Log and retry other errors
+                if attempt < _MAX_RETRIES:
+                    LOGGER.warning(
+                        "Groq failed (%s), attempt %d/%d, retrying in %.1fs",
+                        error_type,
+                        attempt + 1,
+                        _MAX_RETRIES + 1,
+                        backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * _BACKOFF_MULTIPLIER, _MAX_BACKOFF)
+                else:
+                    LOGGER.error("Groq failed after %d attempts: %s", _MAX_RETRIES + 1, exc)
+                    self._circuit_breaker.record_failure()
+
+        raise LlmError(f"Groq complete failed after {_MAX_RETRIES + 1} attempts") from last_exception
 
     def _groq_create_kwargs(self, request: LlmRequest, *, stream: bool) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
@@ -203,8 +464,6 @@ class GroqLlmClient:
             "stream": stream,
             "stop": None,
         }
-        if "oss" in self._settings.model.lower():
-            kwargs["reasoning_effort"] = self._settings.reasoning_effort
         if request.tools:
             tools_def = [tool_spec_to_openai_tool(t) for t in request.tools]
             kwargs["tools"] = tools_def
@@ -241,26 +500,27 @@ class GroqLlmClient:
         )
 
     async def stream(self, request: LlmRequest) -> AsyncIterator[str]:
+        if not self._circuit_breaker.can_attempt():
+            yield "Service temporarily unavailable. Please try again later."
+            return
+
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         loop = asyncio.get_running_loop()
+        stream_error: str | None = None
 
         def run_stream() -> None:
+            nonlocal stream_error
             try:
                 completion = self._client.chat.completions.create(
                     **self._groq_create_kwargs(request, stream=True)
                 )
-                first = True
-                t0 = __import__('time').perf_counter()
                 for chunk in completion:
                     content = chunk.choices[0].delta.content or ""
                     if content:
-                        if first:
-                            from directioner.monitoring.pipeline_metrics import record_first_token
-                            record_first_token(__import__('time').perf_counter() - t0)
-                            first = False
                         loop.call_soon_threadsafe(queue.put_nowait, content)
             except Exception as exc:
                 LOGGER.warning("Groq stream failed: %s", exc)
+                stream_error = str(exc)
                 loop.call_soon_threadsafe(
                     queue.put_nowait,
                     "Sorry, I hit an LLM error. Please try again in a moment.",
@@ -271,10 +531,18 @@ class GroqLlmClient:
         task = asyncio.create_task(asyncio.to_thread(run_stream))
         try:
             while True:
-                item = await queue.get()
+                item = await asyncio.wait_for(queue.get(), timeout=60.0)
                 if item is None:
                     break
                 yield item
+            if stream_error:
+                self._circuit_breaker.record_failure()
+            else:
+                self._circuit_breaker.record_success()
+        except asyncio.TimeoutError:
+            task.cancel()
+            self._circuit_breaker.record_failure()
+            yield "Request timed out. Please try again."
         finally:
             await task
 

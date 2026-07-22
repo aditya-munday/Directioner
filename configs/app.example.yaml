@@ -5,28 +5,15 @@ app:
 
 runtime:
   asyncio_debug: false
-  native_worker_threads: 4
-  shared_memory_namespace: directioner-dev
-
-audio:
-  sample_rate_hz: 48000
-  channels: 1
-  frame_ms: 20
-  pcm_format: s16le
-  input_ring_frames: 512
-  output_ring_frames: 512
 
 conversation:
   context_window_tokens: 32000
-  allow_barge_in: true
-  interruption_grace_ms: 160
 
 memory:
   enabled: true
   max_turns_per_conversation: 200
   retrieval_turns: 8
   persist_path: "./data/memory/turns.jsonl"
-  # Supabase long-term memory config
   use_supabase: false
   supabase_url:
   supabase_key:
@@ -34,7 +21,6 @@ memory:
 discord:
   bot_token:
   application_id:
-  native_pool_threads: 1
   shard_count: 0
   cluster_id: 0
   cluster_count: 1
@@ -49,34 +35,9 @@ llm:
   base_url:
   max_output_chars: 1800
   stream_chat: false
-  stream_flush_chars: 280
   temperature: 0.7
   top_p: 1.0
   max_completion_tokens: 1024
-  reasoning_effort: low
   system_prompt: >
     You are Directioner, a concise Discord assistant.
     Answer helpfully and keep replies suitable for chat.
-
-models:
-  stt_profile: nvidia/parakeet-tdt-0.6b-v2
-  tts_profile: chatterbox
-  llm_profile: default
-
-vad:
-  enabled: true
-  threshold: 0.5
-
-wakeword:
-  enabled: false
-  model_paths: []
-  threshold: 0.5
-  inference_framework: onnx
-
-stt:
-  model: nvidia/parakeet-tdt-0.6b-v2
-
-tts:
-  device: cuda
-  exaggeration: 0.5
-  cfg_weight: 0.5

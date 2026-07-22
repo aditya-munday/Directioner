@@ -14,28 +14,12 @@ def build_conversation_router(
     responses: ResponseRouter | None = None,
     settings: ConversationSettings | None = None,
     memory_settings: MemorySettings | None = None,
-    voice_output_pipeline=None,
-    tts=None,
-    voice_output=None,
 ) -> ConversationRouter:
     memory = MemoryStore(memory_settings)
     planner = Planner()
 
     if responses is None:
-        responses = ResponseRouter(
-            memory=memory,
-            voice_output_pipeline=voice_output_pipeline,
-            tts=tts,
-            voice_output=voice_output,
-        )
-    else:
-        # Inject voice components into an already-constructed ResponseRouter
-        if voice_output_pipeline is not None and responses._voice_output_pipeline is None:
-            responses._voice_output_pipeline = voice_output_pipeline
-        if tts is not None and responses._tts is None:
-            responses._tts = tts
-        if voice_output is not None and responses._voice_output is None:
-            responses._voice_output = voice_output
+        responses = ResponseRouter(memory=memory)
 
     if responses._memory is None:
         responses._memory = memory

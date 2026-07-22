@@ -1,11 +1,11 @@
-"""Single routing entry point for voice and text interactions."""
+"""Single routing entry point for text interactions with scaling support."""
 
 from __future__ import annotations
 
 from directioner.conversation.context import ContextManager
 from directioner.conversation.events import ConversationEvent, ConversationEventKind
 from directioner.conversation.identity import IdentityMapper
-from directioner.conversation.state import ConversationState
+from directioner.conversation.state import ConversationState, ConversationStateManager
 from directioner.conversation.summarizer import ContextSummarizer
 from directioner.intent.planner import Planner
 from directioner.memory.store import MemoryStore
@@ -14,12 +14,6 @@ from directioner.response.router import ResponseRouter
 from directioner.text.cleanup import strip_discord_mentions
 
 LOGGER = get_logger(__name__)
-
-
-def _voice_conversation_id(event: ConversationEvent) -> str:
-    """Voice events get a separate conversation namespace so they never
-    share state with the chat channel."""
-    return f"voice:{event.conversation_id}"
 
 
 class ConversationRouter:
@@ -31,6 +25,8 @@ class ConversationRouter:
         context: ContextManager | None = None,
         summarizer: ContextSummarizer | None = None,
         identity: IdentityMapper | None = None,
+        state_manager: ConversationStateManager | None = None,
+        max_conversations: int = 100_000,
     ) -> None:
         self._memory = memory
         self._planner = planner
@@ -38,53 +34,24 @@ class ConversationRouter:
         self._context = context or ContextManager()
         self._summarizer = summarizer or ContextSummarizer()
         self._identity = identity or IdentityMapper()
-        self._states: dict[str, ConversationState] = {}
-
-    async def handle(self, event: ConversationEvent) -> None:
-        is_voice = event.kind in {
-            ConversationEventKind.VOICE_FINAL,
-            ConversationEventKind.VOICE_PARTIAL,
-            ConversationEventKind.BARGE_IN,
-        }
-
-        if is_voice:
-            conv_id = _voice_conversation_id(event)
-            event = ConversationEvent(
-                kind=event.kind,
-                conversation_id=conv_id,
-                user_id=event.user_id,
-                text=event.text,
-                speaker_id=event.speaker_id,
-                channel_id=event.channel_id,
-                guild_id=event.guild_id,
-                metadata=event.metadata,
-            )
-
-        state = self._states.setdefault(
-            event.conversation_id,
-            ConversationState(conversation_id=event.conversation_id),
+        # Use the new state manager for scalable state management
+        self._state_manager = state_manager or ConversationStateManager(
+            max_states=max_conversations,
         )
 
-        # Resolve identity: map speaker label to a display name
-        if is_voice and event.speaker_id:
-            profile = self._identity.get_or_create_speaker(event.speaker_id)
-            # If the event carries a discord_id hint, link them
-            discord_hint = event.metadata.get("discord_id")
-            if discord_hint:
-                self._identity.link_speaker_to_discord(event.speaker_id, str(discord_hint))
-        elif not is_voice and event.user_id:
+    async def handle(self, event: ConversationEvent) -> None:
+        state = self._state_manager.get_or_create(
+            conversation_id=event.conversation_id,
+            guild_id=event.guild_id,
+            channel_id=event.channel_id,
+            user_id=event.user_id,
+        )
+
+        # Resolve identity
+        if event.user_id:
             self._identity.get_or_create_discord(event.user_id)
 
-        # BARGE_IN: cancel active voice synthesis immediately
-        if event.kind is ConversationEventKind.BARGE_IN:
-            state.interruption_count += 1
-            LOGGER.info(
-                "conversation.barge_in %s",
-                event_fields(conversation_id=event.conversation_id, count=state.interruption_count),
-            )
-            await self._responses.cancel_active_response(state)
-            return
-
+        # Handle interruption
         if event.kind is ConversationEventKind.INTERRUPTION:
             state.interruption_count += 1
             LOGGER.info(
@@ -95,23 +62,19 @@ class ConversationRouter:
             return
 
         # Text cleanup
-        if is_voice:
-            cleaned_text = event.text
-        else:
-            cleaned_text = strip_discord_mentions(event.text)
-            if not cleaned_text:
-                return
-            if cleaned_text != event.text:
-                event = ConversationEvent(
-                    kind=event.kind,
-                    conversation_id=event.conversation_id,
-                    user_id=event.user_id,
-                    text=cleaned_text,
-                    speaker_id=event.speaker_id,
-                    channel_id=event.channel_id,
-                    guild_id=event.guild_id,
-                    metadata=event.metadata,
-                )
+        cleaned_text = strip_discord_mentions(event.text)
+        if not cleaned_text:
+            return
+        if cleaned_text != event.text:
+            event = ConversationEvent(
+                kind=event.kind,
+                conversation_id=event.conversation_id,
+                user_id=event.user_id,
+                text=cleaned_text,
+                channel_id=event.channel_id,
+                guild_id=event.guild_id,
+                metadata=event.metadata,
+            )
 
         if not event.text.strip():
             return
@@ -129,7 +92,11 @@ class ConversationRouter:
                 conversation_id=event.conversation_id,
                 kind=plan.kind.value,
                 channel_id=event.channel_id,
-                source="voice" if is_voice else "chat",
+                source="chat",
             ),
         )
         await self._responses.respond(event, state, plan, self._context.snapshot(state))
+
+    def get_state_stats(self) -> dict:
+        """Get statistics about the router's state management."""
+        return self._state_manager.get_stats()

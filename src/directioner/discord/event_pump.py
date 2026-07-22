@@ -20,7 +20,6 @@ class EventPumpStats:
     bot_messages_ignored: int = 0
     permission_events_blocked: int = 0
     moderated_events_blocked: int = 0
-    voice_frames_polled: int = 0
 
 
 class DppEventPump:
@@ -61,7 +60,6 @@ class DppEventPump:
         self._bot_messages_ignored = 0
         self._permission_events_blocked = 0
         self._moderated_events_blocked = 0
-        self._voice_frames_polled = 0
         self._seen_message_ids: set[str] = set()
 
     @property
@@ -71,7 +69,6 @@ class DppEventPump:
             bot_messages_ignored=self._bot_messages_ignored,
             permission_events_blocked=self._permission_events_blocked,
             moderated_events_blocked=self._moderated_events_blocked,
-            voice_frames_polled=self._voice_frames_polled,
         )
 
     async def run_forever(self) -> None:
@@ -84,11 +81,6 @@ class DppEventPump:
         routed = 0
         while await self._drain_text_once():
             routed += 1
-
-        while self._runtime.poll_voice_frame() is not None:
-            self._voice_frames_polled += 1
-            routed += 1
-
         return routed
 
     async def _drain_text_once(self) -> bool:

@@ -1,0 +1,11 @@
+# =============================================================================
+# Kubernetes Namespace
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: directioner
+  labels:
+    app.kubernetes.io/name: directioner
+    app.kubernetes.io/component: bot

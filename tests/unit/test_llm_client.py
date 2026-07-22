@@ -68,7 +68,6 @@ async def test_groq_client_uses_configured_chat_completion_arguments(monkeypatch
             temperature=1,
             top_p=1,
             max_completion_tokens=8192,
-            reasoning_effort="medium",
         )
     )
 
@@ -85,7 +84,6 @@ async def test_groq_client_uses_configured_chat_completion_arguments(monkeypatch
     assert captured["temperature"] == 1
     assert captured["max_completion_tokens"] == 1024
     assert captured["top_p"] == 1
-    assert captured["reasoning_effort"] == "medium"
     assert captured["stream"] is False
     assert captured["stop"] is None
     assert captured["messages"] == [
